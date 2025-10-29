@@ -69,18 +69,23 @@ head -50 improved_translation_v2_results.json
 ## 📁 프로젝트 구조
 
 ```
-TranslatewithRag/
+LLMTranslator/
 ├── 📄 README.md                              # 이 파일
 ├── 📄 CLAUDE.md                              # AI 설정 및 가이드
 ├── 📄 requirements.txt                        # 의존성 패키지
+├── 📄 .gitignore                             # Git 제외 파일
 │
 ├── 🎯 improved_translator_v2.py               # V2 번역기 (추천)
 ├── 🏆 improved_translator_v3.py               # V3 번역기 (완벽)
 │
-├── 📊 improved_translation_v2_results.json    # V2 결과 (68/70 성공)
-├── 📊 improved_translation_v2_results.csv
-├── 📊 improved_translation_v3_results.json    # V3 테스트 결과
-├── 📊 improved_translation_v3_results.csv
+├── 📂 input/                                  # 입력 PDF 파일 (Git 제외)
+│   └── *.pdf                                 # 번역할 PDF 파일 위치
+│
+├── 📂 output/                                 # 번역 결과 파일 (Git 제외)
+│   ├── improved_translation_v2_results.json   # V2 JSON 결과
+│   ├── improved_translation_v2_results.csv    # V2 CSV 결과
+│   ├── improved_translation_v3_results.json   # V3 JSON 결과
+│   └── improved_translation_v3_results.csv    # V3 CSV 결과
 │
 ├── 📚 docs/                                   # 문서 및 보고서
 │   ├── 실행_가이드.md                         # 상세 실행 방법
@@ -90,14 +95,10 @@ TranslatewithRag/
 │   ├── 단계별_개선_계획.md                     # 개선 전략
 │   └── 번역_개선_비교_결과.xlsx               # 비교 결과
 │
-├── 📦 archive/                                # 이전 버전 및 분석 스크립트
-│   ├── v1_results/                           # V1 결과 파일
-│   ├── analysis_scripts/                     # 분석 스크립트
-│   ├── final_pdf_translator.py               # V1 번역기
-│   ├── batch_translator.py                   # 배치 번역기
-│   └── pdf_extractor.py                      # PDF 추출기
-│
-└── 📖 XY-A ATS开发对IBC需求文档_V0.0.pdf      # 원본 문서
+└── 📦 archive/                                # 이전 버전 및 분석 스크립트
+    ├── v1_results/                           # V1 결과 파일
+    ├── analysis_scripts/                     # 분석 스크립트
+    └── *.py                                  # 구버전 번역기들
 ```
 
 ---
@@ -130,29 +131,155 @@ TranslatewithRag/
 
 ---
 
-## 🎯 사용 예시
+## 🎯 상세 사용법
 
-### 예시 1: 기본 번역
+### Step 1: 저장소 클론 및 설치
+
 ```bash
-# V2로 빠르게 번역
-python3 improved_translator_v2.py
+# 1. 저장소 클론
+git clone https://github.com/GGOMBAL/LLMTranslator.git
+cd LLMTranslator
 
-# 결과
-📊 Final Summary:
-   📄 Total pages processed: 44
-   ✅ Successful translations: 42 (95.5%)
-   ❌ Failed/skipped: 0 (0.0%)
+# 2. 필수 패키지 설치
+pip3 install -r requirements.txt
+
+# 3. 폴더 구조 확인
+ls -la
 ```
 
-### 예시 2: 완벽한 번역
+### Step 2: PDF 파일 준비
+
 ```bash
-# V3로 전체 문서 번역
+# 번역할 PDF를 input 폴더에 복사
+cp "your-chinese-document.pdf" input/
+
+# 또는 직접 이동
+mv ~/Downloads/chinese-doc.pdf input/
+```
+
+**⚠️ 중요**:
+- PDF 파일명을 `improved_translator_v2.py`와 `improved_translator_v3.py`에서 확인하고 필요시 수정하세요
+- 기본 파일명: `input/XY-A ATS开发对IBC需求文档_V0.0.pdf`
+
+### Step 3: 번역 실행
+
+#### Option A: 빠른 번역 (V2 - 추천) ⚡
+```bash
+python3 improved_translator_v2.py
+```
+
+**실시간 진행 상황:**
+```
+🚀 개선된 PDF 번역기 V2 - 1단계 개선사항 적용
+================================================================================
+📖 Extracting from 70 pages...
+✅ Successfully processed 70 pages
+
+================================================================================
+📋 Processing Page 1 (1/70)...
+   📝 Original sample: 目录...
+   🔄 Translating with improved retry mechanism...
+   Text length: 1234 chars, Timeout: 60s
+   ✅ Result: Table of Contents...
+   ⏱️  Time: 3.2s
+```
+
+#### Option B: 완벽한 번역 (V3) 🏆
+```bash
+# 테스트용 (TOC 페이지 2-3만)
+python3 improved_translator_v3.py
+
+# 전체 문서 번역
+python3 improved_translator_v3.py --all
+```
+
+### Step 4: 결과 확인
+
+```bash
+# output 폴더로 이동
+cd output
+
+# 결과 파일 확인
+ls -lh
+
+# JSON 결과 미리보기
+head -50 improved_translation_v2_results.json
+
+# CSV로 열기 (Excel, Numbers 등)
+open improved_translation_v2_results.csv
+```
+
+**생성되는 파일:**
+- `improved_translation_v2_results.json` - 전체 번역 데이터 (JSON)
+- `improved_translation_v2_results.csv` - 표 형식 결과 (CSV)
+
+### Step 5: 결과 분석
+
+JSON 파일 구조:
+```json
+{
+  "total_pages_processed": 70,
+  "timestamp": "2024-10-29 20:00:00",
+  "successful_translations": 68,
+  "pages": [
+    {
+      "page_number": 1,
+      "original_text": "中文内容...",
+      "translated_text": "English translation...",
+      "original_char_count": 1234,
+      "translated_char_count": 1156,
+      "translation_time": 3.2
+    }
+  ]
+}
+```
+
+---
+
+## 🎯 사용 예시
+
+### 예시 1: 기본 번역 워크플로우
+```bash
+# 1. PDF 준비
+cp "technical-spec.pdf" input/
+
+# 2. V2로 빠르게 번역 (97.1% 성공률)
+python3 improved_translator_v2.py
+
+# 3. 결과 확인
+cd output
+cat improved_translation_v2_results.json
+
+# 출력:
+# 📊 Final Summary:
+#    📄 Total pages processed: 70
+#    ✅ Successful translations: 68 (97.1%)
+#    ❌ Failed/skipped: 2 (2.9%)
+```
+
+### 예시 2: 완벽한 번역 (TOC 포함)
+```bash
+# V3로 전체 문서 번역 (100% 성공률)
 python3 improved_translator_v3.py --all
 
-# 결과
-📊 Summary:
-   Pages processed: 70
-   Successful: 70 (100.0%)
+# 출력:
+# 📊 Summary:
+#    Pages processed: 70
+#    Successful: 70 (100.0%)
+#    ✅ TOC 페이지 완벽 번역!
+```
+
+### 예시 3: 다른 PDF 번역하기
+```bash
+# 1. 코드에서 파일명 수정
+# improved_translator_v2.py 열기
+nano improved_translator_v2.py
+
+# 2. pdf_file 변수 수정
+# pdf_file = "input/your-new-document.pdf"
+
+# 3. 번역 실행
+python3 improved_translator_v2.py
 ```
 
 ---
