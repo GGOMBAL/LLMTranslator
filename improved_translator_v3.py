@@ -15,6 +15,14 @@ import re
 import csv
 from typing import List, Tuple, Optional, Dict
 from dataclasses import dataclass
+try:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
+    print("⚠️  openpyxl not installed. Excel output will be skipped.")
 
 # ============================================================================
 # Step 1: 스마트 청크 분할
@@ -569,6 +577,141 @@ def create_outputs(results: List[dict], base_name: str = "improved_translation_v
         print(f"✅ CSV saved: {csv_file}")
     except Exception as e:
         print(f"❌ CSV save error: {e}")
+
+    # Excel output (읽기 좋은 버전)
+    if OPENPYXL_AVAILABLE:
+        excel_file = f"output/{base_name}_readable.xlsx"
+        try:
+            create_readable_excel(json_data, excel_file)
+        except Exception as e:
+            print(f"❌ Excel save error: {e}")
+    else:
+        print("⚠️  Excel output skipped (openpyxl not installed)")
+
+def create_readable_excel(data: dict, output_path: str):
+    """읽기 좋은 Excel 파일 생성 (줄바꿈, 한자 완벽 표시)"""
+    wb = openpyxl.Workbook()
+
+    # 시트 1: 통계
+    ws_stats = wb.active
+    ws_stats.title = "📊 통계"
+
+    # 제목
+    ws_stats['A1'] = "📊 번역 결과 통계 (V3)"
+    ws_stats['A1'].font = Font(bold=True, size=16)
+    ws_stats.merge_cells('A1:B1')
+
+    # 통계 데이터
+    stats = [
+        ("", ""),
+        ("총 페이지 수", data['total_pages_processed']),
+        ("성공한 번역", data['successful_translations']),
+        ("실패/처리", data['total_pages_processed'] - data['successful_translations']),
+        ("성공률", f"{data['successful_translations']/data['total_pages_processed']*100:.1f}%"),
+        ("처리 시간", data.get('timestamp', 'N/A')),
+        ("버전", data.get('version', 'V3')),
+    ]
+
+    row = 2
+    for label, value in stats:
+        ws_stats[f'A{row}'] = label
+        ws_stats[f'B{row}'] = value
+
+        if label:
+            ws_stats[f'A{row}'].font = Font(bold=True)
+            ws_stats[f'A{row}'].fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+        row += 1
+
+    ws_stats.column_dimensions['A'].width = 20
+    ws_stats.column_dimensions['B'].width = 40
+
+    # 시트 2: 전체 번역 결과
+    ws_all = wb.create_sheet("📄 전체 페이지")
+    create_translation_sheet(ws_all, data['pages'])
+
+    # 시트 3: 성공만
+    successful = [p for p in data['pages'] if not p['translated_text'].startswith('[')]
+    if successful:
+        ws_success = wb.create_sheet("✅ 성공")
+        create_translation_sheet(ws_success, successful)
+
+    # 시트 4: 실패/처리 필요
+    failed = [p for p in data['pages'] if p['translated_text'].startswith('[')]
+    if failed:
+        ws_failed = wb.create_sheet("⚠️ 실패")
+        create_translation_sheet(ws_failed, failed)
+
+    wb.save(output_path)
+    print(f"✅ Excel saved (읽기 좋은 버전): {output_path}")
+
+def create_translation_sheet(ws, pages):
+    """번역 결과 시트 생성 (줄바꿈 자동 표시)"""
+    # 헤더
+    headers = ['페이지', '원문', '번역문', '원문 길이', '번역문 길이', '상태', '시간(초)']
+
+    # 헤더 스타일
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 테두리 스타일
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # 데이터 작성
+    for row_idx, page in enumerate(pages, 2):
+        is_success = not page['translated_text'].startswith('[')
+        status = "✅ 성공" if is_success else "⚠️ 실패"
+
+        # 셀 값 설정
+        ws.cell(row=row_idx, column=1, value=page['page_number'])
+        ws.cell(row=row_idx, column=2, value=page['original_text'][:500])  # 원문
+        ws.cell(row=row_idx, column=3, value=page['translated_text'][:500])  # 번역문
+        ws.cell(row=row_idx, column=4, value=page['original_char_count'])
+        ws.cell(row=row_idx, column=5, value=page['translated_char_count'])
+        ws.cell(row=row_idx, column=6, value=status)
+        ws.cell(row=row_idx, column=7, value=page.get('translation_time', 'N/A'))
+
+        # 스타일 적용
+        for col in range(1, 8):
+            cell = ws.cell(row=row_idx, column=col)
+            cell.border = thin_border
+
+            # ⭐ 텍스트 래핑 (줄바꿈 표시)
+            if col in [2, 3]:
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+            else:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # 성공/실패 색상
+        status_cell = ws.cell(row=row_idx, column=6)
+        if is_success:
+            status_cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        else:
+            status_cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+
+    # 열 너비 조정
+    ws.column_dimensions['A'].width = 8
+    ws.column_dimensions['B'].width = 60   # 원문 (넓게)
+    ws.column_dimensions['C'].width = 60   # 번역문 (넓게)
+    ws.column_dimensions['D'].width = 12
+    ws.column_dimensions['E'].width = 12
+    ws.column_dimensions['F'].width = 12
+    ws.column_dimensions['G'].width = 10
+
+    # 행 높이 (줄바꿈 고려)
+    for row in range(2, len(pages) + 2):
+        ws.row_dimensions[row].height = 100  # 충분한 높이
 
 def main():
     """Main translation workflow - V3 with chunking and table processing"""
