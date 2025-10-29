@@ -13,6 +13,7 @@ import json
 import time
 import re
 import csv
+import sys
 from typing import List, Tuple, Optional, Dict
 from dataclasses import dataclass
 try:
@@ -23,6 +24,12 @@ try:
 except ImportError:
     OPENPYXL_AVAILABLE = False
     print("⚠️  openpyxl not installed. Excel output will be skipped.")
+
+try:
+    from toc_structure_parser import TOCStructureParser, TOCItem
+    TOC_PARSER_AVAILABLE = True
+except ImportError:
+    TOC_PARSER_AVAILABLE = False
 
 # ============================================================================
 # Step 1: 스마트 청크 분할
@@ -582,7 +589,13 @@ def create_outputs(results: List[dict], base_name: str = "improved_translation_v
     if OPENPYXL_AVAILABLE:
         excel_file = f"output/{base_name}_readable.xlsx"
         try:
-            create_readable_excel(json_data, excel_file)
+            # 구조화 옵션 확인
+            use_structure = '--structure' in sys.argv or '--toc' in sys.argv
+            if use_structure and TOC_PARSER_AVAILABLE:
+                print("   📊 목차 구조 기반 정리 활성화")
+                create_structured_excel(json_data, excel_file)
+            else:
+                create_readable_excel(json_data, excel_file)
         except Exception as e:
             print(f"❌ Excel save error: {e}")
     else:
@@ -713,14 +726,203 @@ def create_translation_sheet(ws, pages):
     for row in range(2, len(pages) + 2):
         ws.row_dimensions[row].height = 100  # 충분한 높이
 
+def create_structured_excel(data: dict, output_path: str):
+    """목차 구조 기반 Excel 파일 생성"""
+    parser = TOCStructureParser()
+    wb = openpyxl.Workbook()
+
+    # 목차 추출 (TOC 페이지 찾기)
+    toc_pages = [p for p in data['pages'] if p['page_number'] in [2, 3]]  # 일반적으로 2-3페이지
+    toc_text = '\n'.join([p['original_text'] for p in toc_pages])
+
+    # 목차 파싱
+    toc_items = parser.parse_toc_text(toc_text)
+    print(f"   📖 목차 항목 {len(toc_items)}개 감지")
+
+    # 페이지-섹션 매핑
+    page_to_section = parser.map_pages_to_sections(data['pages'])
+
+    # 시트 1: 통계
+    ws_stats = wb.active
+    ws_stats.title = "📊 통계"
+    ws_stats['A1'] = "📊 번역 결과 통계 (구조화 V3)"
+    ws_stats['A1'].font = Font(bold=True, size=16)
+    ws_stats.merge_cells('A1:B1')
+
+    stats = [
+        ("", ""),
+        ("총 페이지 수", data['total_pages_processed']),
+        ("성공한 번역", data['successful_translations']),
+        ("목차 항목 수", len(toc_items)),
+        ("성공률", f"{data['successful_translations']/data['total_pages_processed']*100:.1f}%"),
+        ("버전", "V3 - Chunking + TOC/표 처리"),
+    ]
+
+    row = 2
+    for label, value in stats:
+        ws_stats[f'A{row}'] = label
+        ws_stats[f'B{row}'] = value
+        if label:
+            ws_stats[f'A{row}'].font = Font(bold=True)
+            ws_stats[f'A{row}'].fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+        row += 1
+
+    ws_stats.column_dimensions['A'].width = 20
+    ws_stats.column_dimensions['B'].width = 40
+
+    # 시트 2: 구조화된 번역 결과
+    ws_structured = wb.create_sheet("📚 구조화된 번역")
+    create_structured_translation_sheet(ws_structured, data['pages'], page_to_section, parser)
+
+    # 시트 3: 목차
+    ws_toc = wb.create_sheet("📑 목차")
+    create_toc_sheet(ws_toc, toc_items)
+
+    wb.save(output_path)
+    print(f"✅ Excel saved (구조화 버전): {output_path}")
+
+def create_structured_translation_sheet(ws, pages, page_to_section: Dict, parser: TOCStructureParser):
+    """구조화된 번역 시트"""
+    headers = ['섹션', '페이지', '원문', '번역문', '상태']
+
+    # 헤더 스타일
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 테두리
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # 섹션별로 그룹화
+    current_section = None
+    row_idx = 2
+
+    for page in sorted(pages, key=lambda x: x['page_number']):
+        page_num = page['page_number']
+        section_num = page_to_section.get(page_num, "")
+
+        # 새 섹션 시작 시 헤더 추가
+        if section_num and section_num != current_section:
+            current_section = section_num
+            section_info = parser.get_section_info(section_num)
+
+            # 섹션 헤더 행
+            level = section_num.count('.') + 1
+            indent = "  " * (level - 1)
+            section_title = f"{indent}{section_num}"
+            if section_info:
+                section_title += f" {section_info.title}"
+
+            ws.cell(row=row_idx, column=1, value=section_title)
+            ws.merge_cells(f'A{row_idx}:E{row_idx}')
+
+            header_cell = ws.cell(row=row_idx, column=1)
+            if level == 1:
+                header_cell.fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
+                header_cell.font = Font(bold=True, size=12)
+            elif level == 2:
+                header_cell.fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+                header_cell.font = Font(bold=True, size=11)
+            else:
+                header_cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+                header_cell.font = Font(bold=True, size=10)
+
+            row_idx += 1
+
+        # 페이지 데이터
+        is_success = not page['translated_text'].startswith('[')
+        status = "✅" if is_success else "⚠️"
+
+        ws.cell(row=row_idx, column=1, value=section_num)
+        ws.cell(row=row_idx, column=2, value=page_num)
+        ws.cell(row=row_idx, column=3, value=page['original_text'][:300])
+        ws.cell(row=row_idx, column=4, value=page['translated_text'][:300])
+        ws.cell(row=row_idx, column=5, value=status)
+
+        # 스타일
+        for col in range(1, 6):
+            cell = ws.cell(row=row_idx, column=col)
+            cell.border = thin_border
+            if col in [3, 4]:
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+            else:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        if is_success:
+            ws.cell(row=row_idx, column=5).fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+
+        ws.row_dimensions[row_idx].height = 60
+        row_idx += 1
+
+    # 열 너비
+    ws.column_dimensions['A'].width = 15
+    ws.column_dimensions['B'].width = 8
+    ws.column_dimensions['C'].width = 50
+    ws.column_dimensions['D'].width = 50
+    ws.column_dimensions['E'].width = 8
+
+def create_toc_sheet(ws, toc_items: List[TOCItem]):
+    """목차 시트"""
+    headers = ['번호', '제목', '레벨', '페이지']
+
+    # 헤더
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 목차 항목
+    for row_idx, item in enumerate(toc_items, 2):
+        indent = "  " * (item.level - 1)
+
+        ws.cell(row=row_idx, column=1, value=item.number)
+        ws.cell(row=row_idx, column=2, value=f"{indent}{item.title}")
+        ws.cell(row=row_idx, column=3, value=item.level)
+        ws.cell(row=row_idx, column=4, value=item.page)
+
+        # 레벨별 색상
+        if item.level == 1:
+            fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
+        elif item.level == 2:
+            fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+        else:
+            fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+
+        ws.cell(row=row_idx, column=1).fill = fill
+        ws.cell(row=row_idx, column=2).fill = fill
+
+    # 열 너비
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 50
+    ws.column_dimensions['C'].width = 8
+    ws.column_dimensions['D'].width = 10
+
 def main():
     """Main translation workflow - V3 with chunking and table processing"""
 
-    pdf_file = "input/XY-A ATS开发对IBC需求文档_V0.0.pdf"
+    pdf_file = "input/XY-A ATS开发对IBC需求문서_V0.0.pdf"
+
+    # 명령줄 옵션 확인
+    use_structure = '--structure' in sys.argv or '--toc' in sys.argv
 
     # 전체 번역 또는 특정 페이지만 번역
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == '--all':
+    if '--all' in sys.argv:
         target_pages = None  # 전체 페이지
         mode_text = "전체 70페이지"
     else:
@@ -733,6 +935,8 @@ def main():
     print("   1. 스마트 청크 분할 (800자 단위, 100자 오버랩)")
     print("   2. 표/테이블 자동 감지 및 전용 처리")
     print("   3. TOC 구조 파싱 및 항목별 번역")
+    if use_structure:
+        print("   📊 목차 구조 기반 정리: 활성화")
     print("="*80)
     print(f"\n🎯 대상: {mode_text}")
     if target_pages is None:
