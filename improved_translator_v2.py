@@ -440,8 +440,9 @@ def create_structured_excel(data: dict, output_path: str):
     toc_items = parser.parse_toc_text(toc_text)
     print(f"   📖 목차 항목 {len(toc_items)}개 감지")
 
-    # 페이지-섹션 매핑
-    page_to_section = parser.map_pages_to_sections(data['pages'])
+    # 페이지-섹션 매핑 (디버그 모드 활성화)
+    debug_mode = '--debug' in sys.argv
+    page_to_section = parser.map_pages_to_sections(data['pages'], debug=debug_mode)
 
     # 시트 1: 통계
     ws_stats = wb.active

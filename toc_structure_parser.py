@@ -81,27 +81,46 @@ class TOCStructureParser:
         self.toc_items = items
         return items
 
-    def extract_section_from_text(self, text: str) -> Optional[str]:
+    def extract_section_from_text(self, text: str, debug: bool = False) -> Optional[str]:
         """
         페이지 텍스트에서 섹션 번호 추출
 
         Args:
             text: 페이지 텍스트
+            debug: 디버그 모드
 
         Returns:
             섹션 번호 (예: "3.1.1") 또는 None
         """
-        # 텍스트 시작 부분에서 섹션 번호 찾기
+        # 텍스트 시작 부분에서 섹션 번호 찾기 (범위 확대: 500 → 2000자)
+        search_text = text[:2000]
+
         patterns = [
-            r'^(\d+(?:\.\d+){1,4})\s+',  # 시작 부분
-            r'\n(\d+(?:\.\d+){1,4})\s+',  # 줄 시작
-            r'第?\s*(\d+(?:\.\d+){1,4})\s*章',  # 중국어 "第3.1章"
+            # 기본 패턴
+            r'^(\d+(?:\.\d+){0,4})\s+[^\d\n]',  # 시작 부분: "3.1.1 제목"
+            r'\n(\d+(?:\.\d+){0,4})\s+[^\d\n]',  # 줄 시작: "\n3.1.1 제목"
+
+            # 중국어 패턴
+            r'第?\s*(\d+(?:\.\d+){0,4})\s*章',  # "第3.1章"
+            r'(\d+(?:\.\d+){0,4})\s*[、，]',  # "3.1、内容"
+
+            # 일반적인 패턴
+            r'(?:^|\n)(\d+(?:\.\d+){0,4})\s*[\u4e00-\u9fff]',  # 섹션 + 중국어
+            r'(?:^|\n)(\d+(?:\.\d+){0,4})\s+[A-Z]',  # 섹션 + 영어 대문자
+
+            # 느슨한 패턴
+            r'(?:^|\n)(\d+(?:\.\d+){1,4})(?:\s|$)',  # 섹션 번호만
         ]
 
         for pattern in patterns:
-            match = re.search(pattern, text[:500])  # 처음 500자만 확인
+            match = re.search(pattern, search_text)
             if match:
-                return match.group(1)
+                section = match.group(1)
+                # 유효성 검사: 너무 긴 숫자는 제외
+                if len(section) <= 10 and section.count('.') <= 4:
+                    if debug:
+                        print(f"      섹션 감지: {section} (패턴: {pattern[:30]}...)")
+                    return section
 
         return None
 
@@ -163,35 +182,53 @@ class TOCStructureParser:
 
         return hierarchy
 
-    def map_pages_to_sections(self, pages_data: List[Dict]) -> Dict[int, str]:
+    def map_pages_to_sections(self, pages_data: List[Dict], debug: bool = False) -> Dict[int, str]:
         """
         페이지를 섹션에 매핑
 
         Args:
             pages_data: 페이지 데이터 리스트
+            debug: 디버그 모드
 
         Returns:
             {page_number: section_number}
         """
         page_to_section = {}
+        detected_count = 0
+
+        if debug:
+            print(f"\n   🔍 섹션 감지 시작 (총 {len(pages_data)} 페이지)")
 
         for page in pages_data:
             page_num = page['page_number']
-            text = page['original_text']
+            text = page.get('original_text', '')
 
             # 텍스트에서 섹션 번호 추출
-            section = self.extract_section_from_text(text)
+            section = self.extract_section_from_text(text, debug=debug)
             if section:
                 page_to_section[page_num] = section
+                detected_count += 1
+                if debug:
+                    print(f"   ✅ 페이지 {page_num}: 섹션 {section}")
+
+        if debug:
+            print(f"   📊 직접 감지: {detected_count}개 페이지")
 
         # 섹션이 없는 페이지는 이전 섹션을 계속 사용
         current_section = None
+        filled_count = 0
+
         for page in sorted(pages_data, key=lambda x: x['page_number']):
             page_num = page['page_number']
             if page_num in page_to_section:
                 current_section = page_to_section[page_num]
             elif current_section:
                 page_to_section[page_num] = current_section
+                filled_count += 1
+
+        if debug:
+            print(f"   📊 이전 섹션 사용: {filled_count}개 페이지")
+            print(f"   📊 총 매핑: {len(page_to_section)}개 페이지\n")
 
         return page_to_section
 

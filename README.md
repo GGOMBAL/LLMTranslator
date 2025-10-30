@@ -61,11 +61,16 @@ python3 improved_translator_v2.py --structure
 
 # V3 with 목차 구조
 python3 improved_translator_v3.py --all --structure
+
+# 디버그 모드 (섹션 감지 과정 출력)
+python3 improved_translator_v2.py --structure --debug
 ```
 - ✅ 3.1.1, 2.3 같은 계층 구조 인식
 - ✅ 섹션별로 그룹화된 Excel 생성
 - ✅ 목차 시트 자동 생성
 - ✅ 레벨별 색상 코딩
+- ✅ 전체 페이지 자동 매핑
+- ✅ 개선된 패턴 인식 (중국어, 영어 지원)
 
 ### 3. 결과 확인
 
